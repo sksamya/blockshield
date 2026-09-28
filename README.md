@@ -1,7 +1,5 @@
 # blockshield
 
-# SIM-Swap Shield
-
 **Cross-carrier, cross-bank SIM-swap fraud prevention on the [MST Blockchain](https://mstblockchain.com/), with [BridgeKey](https://bridgekey.io/) as the trusted-device signer.**
 
 > **Prototype status:** This is a demonstration. Carrier events, device and location signals, and ML risk scores are **simulated**. It is not production software and makes no fraud-detection accuracy claims.
@@ -21,10 +19,6 @@
 9. [Configuration](#configuration)
 10. [Demo scenarios](#demo-scenarios)
 11. [Testing](#testing)
-12. [Implementation roadmap](#implementation-roadmap)
-13. [Known limitations and open questions](#known-limitations-and-open-questions)
-14. [Contributing](#contributing)
-15. [License](#license)
 
 ---
 
@@ -270,41 +264,4 @@ SIGNER_MODE=bridgekey            # bridgekey | test-wallet
 - **Negative tests:** forged carrier signature, replayed event, unregistered bank writing to `DecisionLog`, tampered decision record, expired or reused wallet challenge.
 - **Performance targets:** chain event to bank cache within a few seconds, and risk decision under 200 ms. Measure these on MST testnet, not just locally.
 
----
 
-## Implementation roadmap
-
-| Phase | Weeks | Focus |
-|---|---|---|
-| 0 | 1 | Monorepo, Docker Compose, shared schemas, canonical serialization |
-| 1 | 1–2 | Contracts and Foundry tests; first deploy to MST testnet |
-| 2 | 2 | Carrier simulator, signing gateway, pre-notification API |
-| 3 | 3–4 | Bank stack: chain reader, auth gateway, risk engine, alerts, recovery, decision log |
-| 4 | 4–5 | BridgeKey trusted-device integration (Chrome extension first, then Android) |
-| 5 | 5 | Scenario runner and dashboard |
-| 6 | 6 | End-to-end and negative tests, latency measurement, docs and demo recording |
-
----
-
-## Known limitations and open questions
-
-- **Public chain.** MST is public, so metadata is visible. See [Privacy model](#privacy-model).
-- **Finality.** With a ~3s block time, choose a confirmation count and measure it. If a swap is not cached when a transfer arrives, the bank should **fail closed** (step-up) for high-value actions.
-- **Which carrier key?** The prototype tries all registered carrier keys. Production should use a number-portability lookup.
-- **BridgeKey integration details.** Signing method, deep-link or WalletConnect support and any SDK need confirming with the BridgeKey team.
-- **Wallet protection.** A fraudster with both the SIM and the phone is only stopped by the wallet's own biometric or PIN protection.
-- **Governance.** Who can change `PolicyContract` parameters needs a real answer beyond the prototype multisig.
-- **Simulated data.** Carrier events, device and location signals, and ML scores are synthetic. Label them as such in any demo.
-- **Vendor figures.** Performance and network numbers for MST and BridgeKey come from their public websites and have not been independently verified here.
-
----
-
-## Contributing
-
-1. Fork the repo and create a feature branch.
-2. Add tests for any contract or risk-rule change.
-3. Run `forge test` and the end-to-end suite before opening a pull request.
-
-## License
-
-Choose a license before publishing (for example MIT or Apache-2.0) and add a `LICENSE` file.
