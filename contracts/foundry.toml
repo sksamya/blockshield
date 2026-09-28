@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.20"
+optimizer = true
+optimizer_runs = 200
+
+[rpc_endpoints]
+mst_testnet = "${RPC_URL}"
+local = "http://127.0.0.1:8545"
