@@ -25,8 +25,8 @@ export const carrier = {
 // ── Bank ─────────────────────────────────────────────────────────────────────
 export const bank = {
   transfer: (bankId, payload) => req('POST', `/bank/${bankId}/transfer`, payload),
-  stepUp: (bankId, transferId, signature) =>
-    req('POST', `/bank/${bankId}/step-up`, { transfer_id: transferId, signature }),
+  stepUp: (bankId, transferId, signature, txHash) =>
+    req('POST', `/bank/${bankId}/step-up`, { transfer_id: transferId, signature, tx_hash: txHash }),
   linkAccount: (bankId, customerId, phone) =>
     req('POST', `/bank/${bankId}/link-account`, { customer_id: customerId, phone_number: phone }),
   passwordReset: (bankId, payload) => req('POST', `/bank/${bankId}/password-reset`, payload),

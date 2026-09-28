@@ -14,29 +14,69 @@ import { wallet } from '../api'
  *   onClose      – fn()
  */
 export default function BridgeKeySignerModal({ challengeId, onSuccess, onClose }) {
-  const [step, setStep]       = useState('idle') // idle | fetching | signing | done | error
-  const [msg, setMsg]         = useState('')
-  const [sig, setSig]         = useState('')
+  const [step, setStep]           = useState('idle') // idle | fetching | signing | done | error
+  const [msg, setMsg]             = useState('')
+  const [sig, setSig]             = useState('')
+  const [onChainTx, setOnChainTx] = useState('')
 
   async function handleSign() {
     try {
       setStep('fetching')
       setMsg('')
 
-      // Step 1 – fetch the canonical message_text from the backend
+      // Step 1 – fetch canonical challenge
       const challenge = await wallet.getChallenge(challengeId)
       const messageText = challenge.message_text
       if (!messageText) throw new Error('Backend challenge has no message_text')
 
+      if (!window.ethereum) throw new Error('BridgeKey extension not detected. Install it from the Chrome Web Store.')
+
       setStep('signing')
 
-      // Step 2 – ask BridgeKey (window.ethereum) to sign EXACTLY that string
-      if (!window.ethereum) throw new Error('BridgeKey extension not detected. Install it from the Chrome Web Store.')
+      // Switch to MST Testnet (Chain ID: 91562037 -> 0x5752035)
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x5752035' }],
+        })
+      } catch (switchError) {
+        if (switchError.code === 4902 || switchError?.data?.originalError?.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0x5752035',
+              chainName: 'MST Testnet',
+              nativeCurrency: { name: 'MST', symbol: 'MST', decimals: 18 },
+              rpcUrls: ['https://testnetrpc.mstblockchain.com'],
+              blockExplorerUrls: ['https://testnet.mstscan.com'],
+            }],
+          })
+        }
+      }
 
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
       const walletAddress = accounts[0]
 
-      // EIP-191 personal_sign: params are [message, address]
+      // Step 2 – Submit a REAL on-chain authorization transaction directly from BridgeKey
+      // This creates a permanent transaction in BridgeKey's Activity tab and on MSTScan
+      let liveTxHash = ''
+      try {
+        const authDataHex = '0x' + Array.from(new TextEncoder().encode(`BlockShield:StepUp:${challengeId}`)).map(b => b.toString(16).padStart(2, '0')).join('')
+        liveTxHash = await window.ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{
+            from: walletAddress,
+            to: walletAddress,
+            value: '0x0',
+            data: authDataHex,
+          }],
+        })
+        setOnChainTx(liveTxHash)
+      } catch (txErr) {
+        console.warn('On-chain tx declined or error:', txErr)
+      }
+
+      // Step 3 – Get the EIP-191 biometric personal_sign signature
       const signature = await window.ethereum.request({
         method: 'personal_sign',
         params: [messageText, walletAddress],
@@ -44,7 +84,7 @@ export default function BridgeKeySignerModal({ challengeId, onSuccess, onClose }
 
       setSig(signature)
       setStep('done')
-      onSuccess(signature)
+      onSuccess({ signature, txHash: liveTxHash })
     } catch (err) {
       setMsg(err.message || 'Unknown error')
       setStep('error')
@@ -106,10 +146,23 @@ export default function BridgeKeySignerModal({ challengeId, onSuccess, onClose }
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-emerald-400">
               <span className="text-xl">✅</span>
-              <span className="font-semibold">Signature captured</span>
+              <span className="font-semibold">Authentication Successful!</span>
             </div>
+            {onChainTx && (
+              <div className="bg-indigo-950/60 border border-indigo-700/60 rounded-lg px-3 py-2">
+                <p className="text-xs text-indigo-300 font-semibold mb-1">🔗 On-Chain MST Transaction:</p>
+                <a
+                  href={`https://testnet.mstscan.com/tx/${onChainTx}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-indigo-400 hover:text-indigo-200 underline font-mono break-all block"
+                >
+                  {onChainTx} ↗
+                </a>
+              </div>
+            )}
             <div className="bg-slate-900 rounded-lg px-3 py-2">
-              <p className="text-xs text-slate-500 mb-1">Signature</p>
+              <p className="text-xs text-slate-500 mb-1">Biometric Signature</p>
               <p className="text-xs text-slate-300 font-mono break-all">{sig}</p>
             </div>
           </div>

@@ -27,7 +27,7 @@ class BankService:
                 "account_number": "ACC-987654",
                 "balance_cents": 2500000, # $25,000.00
                 "enrolled_device": "device_alice_iphone",
-                "wallet_address": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+                "wallet_address": "0xe62307B28F3130Db729C05D47b701160FD8b13b5",
                 "password_hash": "mock_hash_123",
                 "last_password_reset": 0
             },
@@ -197,7 +197,13 @@ class BankService:
             "requires_bridgekey": risk["requires_bridgekey"],
             "challenge": challenge_info,
             "decision_anchor": anchor,
-            "factors": risk["factors"]
+            "factors": risk["factors"],
+            # Fields required by the frontend
+            "wallet_address": customer.get("wallet_address", ""),
+            "customer_display_id": customer.get("name", customer_id),
+            "risk_reason": risk.get("reason", ""),
+            "has_mule_flag": risk.get("is_destination_mule", False),
+            "anchor_hash": anchor.get("decision_hash", "")
         }
 
     def complete_bridgekey_step_up(self, transfer_id: str, signature_hex: str) -> dict:

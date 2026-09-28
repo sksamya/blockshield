@@ -17,7 +17,7 @@ class BridgeKeyService:
         self._enrolled_wallets = {
             "cust_101": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
             "cust_102": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-            "cust_victim": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+            "cust_victim": "0xe62307B28F3130Db729C05D47b701160FD8b13b5",
             "cust_legit": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
         }
 

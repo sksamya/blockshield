@@ -107,7 +107,7 @@ contract SwapRegistry {
     /**
      * @notice Check if a token has a valid active pre-notification.
      */
-    function hasActivePreNotification(bytes calldata token) public view returns (bool) {
+    function hasActivePreNotification(bytes memory token) public view returns (bool) {
         bytes32 tokenHash = keccak256(token);
         PreNotification memory pn = preNotifications[tokenHash];
         return (!pn.consumed && pn.validUntil >= block.timestamp);
@@ -117,38 +117,29 @@ contract SwapRegistry {
      * @notice Record a SIM swap or related lifecycle event.
      */
     function recordEvent(
-        bytes calldata token,
-        string calldata carrierId,
-        string calldata eventType,
+        bytes memory token,
+        string memory carrierId,
+        string memory eventType,
         uint256 timestamp,
         bool preNotified,
-        string calldata notificationRef,
+        string memory notificationRef,
         bytes32 nonce,
-        bytes calldata signature
+        bytes memory signature
     ) external returns (bytes32) {
         require(!usedNonces[nonce], "Nonce already used");
         usedNonces[nonce] = true;
 
-        Carrier memory carrier = carriers[carrierId];
-        require(carrier.isActive, "Carrier not active or unregistered");
+        require(carriers[carrierId].isActive, "Carrier not active or unregistered");
+        address carrierSigner = carriers[carrierId].signerAddress;
 
-        // Verify EIP-191 signature if provided
         if (signature.length == 65) {
-            bytes32 messageHash = keccak256(
-                abi.encodePacked(token, carrierId, eventType, timestamp, preNotified, nonce)
-            );
-            bytes32 ethSignedHash = keccak256(
-                abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-            );
-            address recovered = recoverSigner(ethSignedHash, signature);
-            require(recovered == carrier.signerAddress, "Invalid carrier signature");
+            _verifySignature(token, carrierId, eventType, timestamp, preNotified, nonce, signature, carrierSigner);
         } else {
-            require(msg.sender == carrier.signerAddress || msg.sender == owner, "Sender must be carrier");
+            require(msg.sender == carrierSigner || msg.sender == owner, "Sender must be carrier");
         }
 
         bytes32 tokenHash = keccak256(token);
 
-        // Check and update pre-notification status
         bool wasPreNotified = preNotified;
         if (hasActivePreNotification(token)) {
             wasPreNotified = true;
@@ -199,6 +190,26 @@ contract SwapRegistry {
     function getEventHistory(bytes calldata token) external view returns (SwapEvent[] memory) {
         bytes32 tokenHash = keccak256(token);
         return eventHistory[tokenHash];
+    }
+
+    function _verifySignature(
+        bytes memory token,
+        string memory carrierId,
+        string memory eventType,
+        uint256 timestamp,
+        bool preNotified,
+        bytes32 nonce,
+        bytes memory signature,
+        address expectedSigner
+    ) internal pure {
+        bytes32 messageHash = keccak256(
+            abi.encodePacked(token, carrierId, eventType, timestamp, preNotified, nonce)
+        );
+        bytes32 ethSignedHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
+        );
+        address recovered = recoverSigner(ethSignedHash, signature);
+        require(recovered == expectedSigner, "Invalid carrier signature");
     }
 
     function recoverSigner(bytes32 ethSignedHash, bytes memory signature) internal pure returns (address) {
