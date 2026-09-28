@@ -75,7 +75,16 @@ export default function CarrierPortal() {
           {result && (
             <div className="mt-4 bg-emerald-900/30 border border-emerald-700 rounded-lg p-3 text-xs text-emerald-300">
               <p className="font-semibold mb-1">✅ Event recorded on MST Blockchain</p>
-              <p>TX: <span className="font-mono">{result.tx_hash}</span></p>
+              <p className="mb-1">
+                TX: <a
+                  href={`https://testnet.mstscan.com/tx/${result.tx_hash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-emerald-300 hover:text-emerald-100 underline break-all"
+                >
+                  {result.tx_hash} ↗
+                </a>
+              </p>
               <p>Pre-notified: {result.pre_notified ? 'Yes' : 'No'}</p>
             </div>
           )}

@@ -4,14 +4,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    CHAIN_MODE = os.getenv("CHAIN_MODE", "local")
-    RPC_URL = os.getenv("RPC_URL", "http://localhost:8545")
-    CHAIN_ID = int(os.getenv("CHAIN_ID", "1337"))
+    CHAIN_MODE = os.getenv("CHAIN_MODE", "mst-testnet")
+    RPC_URL = os.getenv("RPC_URL", "https://testnetrpc.mstblockchain.com")
+    CHAIN_ID = int(os.getenv("CHAIN_ID", "91562037"))
     EXPLORER_URL = os.getenv("EXPLORER_URL", "https://testnet.mstscan.com")
     CONFIRMATIONS = int(os.getenv("CONFIRMATIONS", "1"))
 
-    # Contract Addresses
-    SWAP_REGISTRY_ADDRESS = os.getenv("SWAP_REGISTRY_ADDRESS", "0x5FbDB2315678afecb367f032d93F642f64180aa3")
+    # Contract Addresses (Deployed on MST Testnet)
+    SWAP_REGISTRY_ADDRESS = os.getenv("SWAP_REGISTRY_ADDRESS", "0x9899988b60ee6547d056ad57f84bdF06dD37F40f")
     FRAUD_REGISTRY_ADDRESS = os.getenv("FRAUD_REGISTRY_ADDRESS", "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512")
     POLICY_CONTRACT_ADDRESS = os.getenv("POLICY_CONTRACT_ADDRESS", "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0")
     DECISION_LOG_ADDRESS = os.getenv("DECISION_LOG_ADDRESS", "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9")
