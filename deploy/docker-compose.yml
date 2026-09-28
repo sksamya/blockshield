@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # Local Anvil Ethereum/MST-compatible development chain
+  local-chain:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: blockshield-anvil
+    command: anvil --host 0.0.0.0 --port 8545 --chain-id 1337
+    ports:
+      - "8545:8545"
+
+  # Redis for fast chain reader lookups and caching
+  redis:
+    image: redis:7-alpine
+    container_name: blockshield-redis
+    ports:
+      - "6379:6379"
+
+  # MailHog for capturing victim alert emails locally
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: blockshield-mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+  # BlockShield Flask Backend Server
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: blockshield-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - CHAIN_MODE=local
+      - RPC_URL=http://local-chain:8545
+      - REDIS_URL=redis://redis:6379
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+    depends_on:
+      - local-chain
+      - redis
+      - mailhog
