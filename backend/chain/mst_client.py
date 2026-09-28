@@ -4,6 +4,7 @@ import logging
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 from backend.config import Config
 
 logger = logging.getLogger(__name__)
@@ -137,7 +138,20 @@ class MSTClient:
 
     def __init__(self):
         self.w3 = Web3(Web3.HTTPProvider(Config.RPC_URL))
+        try:
+            self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        except Exception:
+            pass
         self.is_connected = self.w3.is_connected()
+        self.swap_contract = None
+        try:
+            if Config.SWAP_REGISTRY_ADDRESS:
+                self.swap_contract = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(Config.SWAP_REGISTRY_ADDRESS),
+                    abi=SWAP_REGISTRY_ABI
+                )
+        except Exception as e:
+            logger.warning(f"Could not initialize SwapRegistry contract: {e}")
         
         # In-memory local state simulation (ensures full functionality when local testnet is not running)
         self._local_swap_events = {}       # token_hex -> dict
@@ -184,6 +198,39 @@ class MSTClient:
                 was_pre_notified = True
                 pn["consumed"] = True
 
+        tx_hash = "0x" + Web3.keccak(text=f"{token_hex}-{now}").hex()
+        is_onchain = False
+
+        # If connected to live MST Testnet and a real private key is configured, broadcast on-chain!
+        if Config.CHAIN_MODE == "mst-testnet" and self.swap_contract and private_key and str(private_key).startswith("0x") and len(str(private_key)) == 66:
+            try:
+                account = Account.from_key(private_key)
+                current_nonce = self.w3.eth.get_transaction_count(account.address)
+                tx = self.swap_contract.functions.recordEvent(
+                    token_bytes,
+                    carrier_id,
+                    event_type,
+                    timestamp,
+                    was_pre_notified,
+                    notification_ref or "",
+                    nonce_bytes,
+                    signature_bytes
+                ).build_transaction({
+                    'from': account.address,
+                    'nonce': current_nonce,
+                    'gas': 700000,
+                    'maxFeePerGas': self.w3.to_wei(3, 'gwei'),
+                    'maxPriorityFeePerGas': self.w3.to_wei(1.5, 'gwei'),
+                    'chainId': Config.CHAIN_ID
+                })
+                signed = self.w3.eth.account.sign_transaction(tx, private_key=private_key)
+                tx_hash_bytes = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                tx_hash = "0x" + tx_hash_bytes.hex()
+                is_onchain = True
+                logger.info(f"Broadcasted SIM swap to live MST Testnet: {tx_hash}")
+            except Exception as e:
+                logger.error(f"Live on-chain broadcast encountered error, falling back to local state: {e}")
+
         event_data = {
             "token": "0x" + token_hex,
             "carrier_id": carrier_id,
@@ -192,7 +239,8 @@ class MSTClient:
             "pre_notified": was_pre_notified,
             "notification_ref": notification_ref or "",
             "block_timestamp": now,
-            "tx_hash": "0x" + Web3.keccak(text=f"{token_hex}-{now}").hex(),
+            "tx_hash": tx_hash,
+            "is_onchain": is_onchain,
             "status": "confirmed",
             "chain": "MST Blockchain"
         }
