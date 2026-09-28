@@ -216,13 +216,16 @@ class MSTClient:
 
     def flag_mule_account(self, account_token: bytes, bank_id: str, evidence_hash: bytes, reason: str):
         token_hex = account_token.hex()
+        now = int(time.time())
+        tx_hash = "0x" + Web3.keccak(text=f"mule-{token_hex}-{now}").hex()
         flag_data = {
             "account_token": "0x" + token_hex,
             "reporter_bank_id": bank_id,
             "evidence_hash": "0x" + evidence_hash.hex(),
-            "timestamp": int(time.time()),
+            "timestamp": now,
             "reason": reason,
-            "is_active": True
+            "is_active": True,
+            "tx_hash": tx_hash
         }
         self._local_mules[token_hex] = flag_data
         return flag_data

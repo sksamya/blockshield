@@ -51,12 +51,20 @@ export default function BankPortal({ session }) {
     } finally { setLoading(false) }
   }
 
-  async function completeStepUp(signature) {
+  async function completeStepUp(result) {
     setShowSigner(false)
     if (!txResult?.transfer_id) return
+    const signature = typeof result === 'object' ? result.signature : result
+    const txHash = typeof result === 'object' ? result.txHash : null
+
     try {
-      const data = await bank.stepUp(bankId, txResult.transfer_id, signature)
-      setTxResult(prev => ({ ...prev, status: data.transfer_status, step_up_anchor: data.anchor }))
+      const data = await bank.stepUp(bankId, txResult.transfer_id, signature, txHash)
+      setTxResult(prev => ({
+        ...prev,
+        status: data.transfer_status,
+        step_up_anchor: data.anchor,
+        onchain_tx_hash: txHash || data.onchain_tx_hash
+      }))
     } catch (err) {
       setTxError(`Step-up failed: ${err.message}`)
     }
@@ -139,6 +147,19 @@ export default function BankPortal({ session }) {
               <Row label="Risk Reason" value={txResult.risk_reason} />
               <Row label="Mule Flag"  value={txResult.has_mule_flag ? '⚠️ Destination is mule' : '✅ Clean'} />
               <Row label="Anchor Hash" value={txResult.anchor_hash} mono small />
+              {txResult.onchain_tx_hash && (
+                <div className="bg-indigo-950/40 border border-indigo-700/60 rounded-lg p-2.5 my-2">
+                  <p className="text-xs text-indigo-300 font-semibold mb-0.5">🔗 Live MST Blockchain Transaction:</p>
+                  <a
+                    href={`https://testnet.mstscan.com/tx/${txResult.onchain_tx_hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-indigo-400 hover:text-indigo-200 underline font-mono break-all"
+                  >
+                    {txResult.onchain_tx_hash} ↗
+                  </a>
+                </div>
+              )}
 
               {/* Risk factors */}
               {txResult.factors?.length > 0 && (
