@@ -51,3 +51,7 @@ def test_sign():
         return jsonify({"challenge_id": challenge_id, "signature": sig}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+@wallet_bp.route("/enrolled", methods=["GET"])
+def get_enrolled_wallets():
+    return jsonify(bridgekey_service._enrolled_wallets), 200

@@ -37,7 +37,7 @@ export default function CarrierPortal() {
     setPreResult(null)
     try {
       const d = await carrier.preNotify(prePhone)
-      setPreResult(d)
+      setPreResult(d.result || d)
     } catch (err) {
       setError(err.message)
     }
@@ -54,6 +54,31 @@ export default function CarrierPortal() {
         {/* Broadcast swap */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
           <h3 className="font-semibold text-slate-100 mb-4">📡 Broadcast SIM Event</h3>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <span className="text-xs text-slate-400 self-center">Demo:</span>
+            <button
+              type="button"
+              onClick={() => setPhone('+15551234567')}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                phone === '+15551234567'
+                  ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Alice Johnson (+15551234567)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPhone('+15557654321')}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                phone === '+15557654321'
+                  ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Bob Smith (+15557654321)
+            </button>
+          </div>
           <form onSubmit={broadcastSwap} className="space-y-3">
             <Field label="Phone (E.164)" value={phone} onChange={setPhone} placeholder="+15551234567" />
             <div>
@@ -94,7 +119,32 @@ export default function CarrierPortal() {
         {/* Pre-notification */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
           <h3 className="font-semibold text-slate-100 mb-1">🔔 Pre-Notification</h3>
-          <p className="text-xs text-slate-400 mb-4">Register an upcoming swap so banks reduce risk score (lower fraud alert).</p>
+          <p className="text-xs text-slate-400 mb-3">Register an upcoming swap so banks reduce risk score (lower fraud alert).</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <span className="text-xs text-slate-400 self-center">Demo:</span>
+            <button
+              type="button"
+              onClick={() => setPrePhone('+15551234567')}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                prePhone === '+15551234567'
+                  ? 'bg-amber-600/30 border-amber-500 text-amber-200'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Alice Johnson (+15551234567)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrePhone('+15557654321')}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                prePhone === '+15557654321'
+                  ? 'bg-amber-600/30 border-amber-500 text-amber-200'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Bob Smith (+15557654321)
+            </button>
+          </div>
           <form onSubmit={sendPreNotif} className="space-y-3">
             <Field label="Phone (E.164)" value={prePhone} onChange={setPrePhone} placeholder="+15551234567" />
             <button type="submit"
@@ -104,8 +154,9 @@ export default function CarrierPortal() {
           </form>
           {preResult && (
             <div className="mt-4 bg-amber-900/30 border border-amber-700 rounded-lg p-3 text-xs text-amber-300">
-              <p className="font-semibold mb-1">✅ Pre-notification registered</p>
+              <p className="font-semibold mb-1">{preResult.is_onchain ? '✅ Pre-notification confirmed on MST Testnet' : '✅ Pre-notification registered locally'}</p>
               <p>Valid until: {new Date(preResult.valid_until * 1000).toLocaleString()}</p>
+              {preResult.tx_hash && <p className="font-mono break-all">TX: {preResult.tx_hash}</p>}
             </div>
           )}
         </div>

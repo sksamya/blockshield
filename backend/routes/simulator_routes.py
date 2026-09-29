@@ -49,3 +49,8 @@ def run_all():
         "all_scenarios_passed": all_passed,
         "scenarios": results
     }), 200
+
+@simulator_bp.route("/demo-flow", methods=["POST", "GET"])
+def demo_flow():
+    res = scenario_runner.run_demo_flow()
+    return jsonify(res), 200

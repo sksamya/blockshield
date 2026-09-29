@@ -27,6 +27,10 @@ export const bank = {
   transfer: (bankId, payload) => req('POST', `/bank/${bankId}/transfer`, payload),
   stepUp: (bankId, transferId, signature, txHash) =>
     req('POST', `/bank/${bankId}/step-up`, { transfer_id: transferId, signature, tx_hash: txHash }),
+  detectSwap: (bankId, customerOrPhone) =>
+    req('GET', `/bank/${bankId}/detect-swap/${encodeURIComponent(customerOrPhone)}`),
+  enrollWallet: (bankId, customerId, walletAddress) =>
+    req('POST', `/bank/${bankId}/enroll-wallet`, { customer_id: customerId, wallet_address: walletAddress }),
   linkAccount: (bankId, customerId, phone) =>
     req('POST', `/bank/${bankId}/link-account`, { customer_id: customerId, phone_number: phone }),
   passwordReset: (bankId, payload) => req('POST', `/bank/${bankId}/password-reset`, payload),
@@ -37,6 +41,9 @@ export const bank = {
 export const wallet = {
   getChallenge: (challengeId) => req('GET', `/wallet/challenge/${challengeId}`),
   verify: (challengeId, signature) => req('POST', '/wallet/verify', { challenge_id: challengeId, signature }),
+  enroll: (customerId, walletAddress) =>
+    req('POST', '/wallet/enroll', { customer_id: customerId, wallet_address: walletAddress }),
+  getEnrolled: () => req('GET', '/wallet/enrolled'),
   testSign: (challengeId, privateKey) =>
     req('POST', '/wallet/test-sign', { challenge_id: challengeId, private_key: privateKey }),
 }
@@ -53,5 +60,6 @@ export const consortium = {
 // ── Simulator ────────────────────────────────────────────────────────────────
 export const simulator = {
   run: (scenario) => req('POST', '/simulator/run', { scenario }),
+  demoFlow: () => req('POST', '/simulator/demo-flow'),
   summary: () => req('GET', '/simulator/summary'),
 }

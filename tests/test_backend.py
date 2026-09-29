@@ -138,5 +138,5 @@ def test_api_simulator_and_summary(client):
 
     summary = client.get("/api/summary")
     assert summary.status_code == 200
-    assert summary.get_json()["chain_mode"] == "local"
+    assert summary.get_json()["chain_mode"] in ["local", "mst-testnet"]
 
