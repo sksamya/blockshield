@@ -363,4 +363,29 @@ class ScenarioRunner:
             "timeline": timeline
         }
 
+    def run_demo_flow(self) -> dict:
+        """
+        Runs the full end-to-end Alice (CUST-1001) / Eve flow.
+        1. Carrier A records SIM swap for +15551234567.
+        2. Bank B initiates transfer for CUST-1001, detecting the swap.
+        3. Enforces BridgeKey step-up verification.
+        """
+        phone = "+15551234567"
+        swap_res = carrier_service.record_sim_event(phone_number=phone, event_type="SIM_SWAP", pre_notified=False)
+        tx = bank_b_service.initiate_transfer(
+            customer_id="CUST-1001",
+            recipient_account="ACC-MERCHANT-88",
+            amount_cents=10000,
+            device_id="unknown_laptop",
+            ip_location="usual_home_location",
+            had_recent_password_reset=False
+        )
+        return {
+            "success": True,
+            "swap_event": swap_res,
+            "transfer": tx,
+            "challenge_id": tx.get("challenge", {}).get("challenge_id"),
+            "message": "Demo flow completed successfully"
+        }
+
 scenario_runner = ScenarioRunner()

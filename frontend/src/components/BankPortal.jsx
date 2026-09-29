@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { bank, consortium } from '../api'
 import StatusBadge from './StatusBadge'
 import BridgeKeySignerModal from './BridgeKeySignerModal'
@@ -7,13 +7,21 @@ import AuditInspector from './AuditInspector'
 export default function BankPortal({ session }) {
   const bankId = session.role   // 'bank-b' or 'bank-c'
 
+  // Customers state
+  const [customerList, setCustomerList] = useState([])
+  const [customerId, setCustomerId] = useState('CUST-1001')
+
   // Transfer form state
-  const [customerId, setCustomerId] = useState('cust_victim')
   const [recipient, setRecipient]   = useState('ACC-DEST-001')
   const [amount, setAmount]         = useState('100.00')
   const [deviceId, setDeviceId]     = useState('unknown_device')
   const [location, setLocation]     = useState('unusual_location')
   const [hadReset, setHadReset]     = useState(false)
+
+  // SIM detection state
+  const [simDetection, setSimDetection] = useState(null)
+  const [loadingSim, setLoadingSim]     = useState(false)
+  const criticalSwapAlert = Boolean(simDetection?.swap_detected && !simDetection?.is_pre_notified)
 
   // Transfer result
   const [txResult, setTxResult] = useState(null)
@@ -27,6 +35,40 @@ export default function BankPortal({ session }) {
   const [muleAccount, setMuleAccount] = useState('')
   const [muleReason, setMuleReason]   = useState('Suspected mule account')
   const [muleResult, setMuleResult]   = useState(null)
+
+  // Load customer list
+  async function loadCustomers() {
+    try {
+      const data = await bank.customers(bankId)
+      if (data.customers && data.customers.length > 0) {
+        setCustomerList(data.customers)
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  // Check SIM status on MST Blockchain
+  async function checkSimStatus(cId) {
+    if (!cId) return
+    setLoadingSim(true)
+    try {
+      const res = await bank.detectSwap(bankId, cId)
+      setSimDetection(res)
+    } catch (err) {
+      console.error('SIM detection error:', err)
+    } finally {
+      setLoadingSim(false)
+    }
+  }
+
+  useEffect(() => {
+    loadCustomers()
+  }, [bankId])
+
+  useEffect(() => {
+    checkSimStatus(customerId)
+  }, [customerId, bankId])
 
   async function initiateTransfer(e) {
     e.preventDefault()
@@ -46,14 +88,15 @@ export default function BankPortal({ session }) {
       if (data.requires_bridgekey && data.challenge?.challenge_id) {
         setShowSigner(true)
       }
+      // Re-check SIM status to stay in sync
+      checkSimStatus(customerId)
     } catch (err) {
       setTxError(err.message)
     } finally { setLoading(false) }
   }
 
   async function completeStepUp(result) {
-    setShowSigner(false)
-    if (!txResult?.transfer_id) return
+    if (!txResult?.transfer_id) { setShowSigner(false); return }
     const signature = typeof result === 'object' ? result.signature : result
     const txHash = typeof result === 'object' ? result.txHash : null
 
@@ -61,12 +104,19 @@ export default function BankPortal({ session }) {
       const data = await bank.stepUp(bankId, txResult.transfer_id, signature, txHash)
       setTxResult(prev => ({
         ...prev,
-        status: data.transfer_status,
+        status: data.transfer_status || 'APPROVED_BY_BRIDGEKEY',
+        transfer_status: data.transfer_status,
         step_up_anchor: data.anchor,
-        onchain_tx_hash: txHash || data.onchain_tx_hash
+        step_up_message: data.message,
+        onchain_tx_hash: txHash || data.onchain_tx_hash,
+        tx_hash: data.tx_hash || txHash || prev?.tx_hash,
+        anchor_hash: data.anchor?.decision_hash || prev?.anchor_hash,
       }))
+      setTxError('')
     } catch (err) {
       setTxError(`Step-up failed: ${err.message}`)
+    } finally {
+      setShowSigner(false)
     }
   }
 
@@ -82,12 +132,60 @@ export default function BankPortal({ session }) {
   }
 
   const challengeId = txResult?.challenge?.challenge_id
+  const activeCustomer = customerList.find(c => c.customer_id === customerId || c.id === customerId) || {
+    customer_id: customerId,
+    phone: customerId === 'CUST-1002' ? '+15557654321' : '+15551234567',
+    wallet_address: customerId === 'CUST-1002' ? '0xa61efceef6debe10a029af2bf7e37220b6dae22f' : '0x19515982e62f9fc03f4e43498ce18028a4cb650e'
+  }
 
   return (
     <main className="max-w-5xl mx-auto p-6 space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-100">{session.label} — Transfer Gateway</h2>
-        <p className="text-sm text-slate-400">Initiate transfers with real-time SIM-swap fraud detection and BridgeKey step-up auth.</p>
+        <p className="text-sm text-slate-400">Initiate transfers with real-time SIM-swap fraud detection and BridgeKey step-up auth on MST Blockchain.</p>
+      </div>
+
+      {/* Real-time Phone-to-Wallet & SIM Swap Detection Banner */}
+      <div className={`border rounded-xl p-4 transition-all ${criticalSwapAlert ? 'bg-red-950/40 border-red-700/80 text-red-200' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{criticalSwapAlert ? '🚨' : '🛡️'}</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm">
+                  {criticalSwapAlert ? 'CRITICAL FRAUD ALERT: Un-notified SIM Swap' : simDetection?.swap_detected ? 'Verified SIM Swap Detected' : 'SIM Integrity Normal'}
+                </span>
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${simDetection?.sms_otp_allowed === false ? 'bg-red-900 text-red-100' : 'bg-emerald-900 text-emerald-200'}`}>
+                  {simDetection?.sms_otp_allowed === false ? 'SMS OTP REFUSED' : 'SMS OTP ALLOWED'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Customer: <strong className="font-mono text-white">{activeCustomer.customer_id || customerId}</strong> •
+                Phone: <strong className="font-mono text-white">{activeCustomer.phone}</strong> •
+                Bound Wallet: <strong className="font-mono text-indigo-300">{activeCustomer.wallet_address?.substring(0, 10)}…{activeCustomer.wallet_address?.substring(activeCustomer.wallet_address.length - 6)}</strong>
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => checkSimStatus(customerId)}
+            disabled={loadingSim}
+            className="self-start sm:self-auto text-xs bg-slate-900 hover:bg-slate-700 text-slate-200 border border-slate-600 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+          >
+            <span>{loadingSim ? 'Checking…' : '↻ Query MST Chain'}</span>
+          </button>
+        </div>
+
+        {simDetection?.swap_detected && (
+          <div className={`mt-3 pt-3 border-t text-xs space-y-1 ${criticalSwapAlert ? 'border-red-800/60 text-red-300' : 'border-slate-700 text-slate-300'}`}>
+            <p>
+              {simDetection.is_pre_notified ? '✅ Carrier A recorded a pre-notified' : '⚠️ Carrier A broadcast an un-notified'} <strong>{simDetection.swap_event?.event_type || 'SIM_SWAP'}</strong> event {simDetection.swap_age_hours}h ago on the MST Blockchain.
+            </p>
+            {criticalSwapAlert && <p className="text-red-400 font-semibold">
+              Bank B Policy: SMS OTP intercepted risk is high. SMS OTP is disabled. All transfers require biometric authorization via BridgeKey (bound to {activeCustomer.wallet_address?.substring(0, 10)}…).
+            </p>}
+          </div>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
@@ -97,10 +195,15 @@ export default function BankPortal({ session }) {
           <form onSubmit={initiateTransfer} className="space-y-3">
             <div>
               <label className="text-xs text-slate-400 block mb-1">Customer</label>
-              <select value={customerId} onChange={e => setCustomerId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100">
-                <option value="cust_victim">cust_victim — Alice Johnson (high-risk)</option>
-                <option value="cust_legit">cust_legit — Bob Smith (low-risk)</option>
+              <select
+                value={customerId}
+                onChange={e => setCustomerId(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 font-medium"
+              >
+                <option value="CUST-1001">CUST-1001 — Alice Johnson (+15551234567)</option>
+                <option value="CUST-1002">CUST-1002 — Bob Smith (+15557654321)</option>
+                <option value="cust_victim">cust_victim (Legacy alias: Alice Johnson)</option>
+                <option value="cust_legit">cust_legit (Legacy alias: Bob Smith)</option>
               </select>
             </div>
             <Field label="Recipient Account" value={recipient} onChange={setRecipient} placeholder="ACC-DEST-001" />
@@ -120,8 +223,8 @@ export default function BankPortal({ session }) {
               Had recent password reset
             </label>
             <button type="submit" disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors">
-              {loading ? 'Evaluating…' : 'Submit Transfer'}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer">
+              {loading ? 'Evaluating Risk…' : 'Submit Transfer'}
             </button>
           </form>
           {txError && <p className="mt-3 text-xs text-red-400 bg-red-900/30 rounded-lg p-2">{txError}</p>}
@@ -131,34 +234,62 @@ export default function BankPortal({ session }) {
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
           <h3 className="font-semibold text-slate-100 mb-4">📊 Transfer Result</h3>
           {!txResult ? (
-            <div className="text-center py-10 text-slate-500 text-sm">Submit a transfer to see results</div>
+            <div className="text-center py-10 text-slate-500 text-sm">Submit a transfer to see real-time fraud risk and on-chain detection</div>
           ) : (
             <div className="space-y-3 text-sm">
+              {/* Success banner */}
+              {(txResult.status === 'APPROVED_BY_BRIDGEKEY' || txResult.transfer_status === 'APPROVED_BY_BRIDGEKEY') && (
+                <div className="bg-emerald-900/40 border border-emerald-600 rounded-xl p-4 mb-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-2xl">✅</span>
+                    <span className="font-bold text-emerald-300">Transfer Approved via BridgeKey!</span>
+                  </div>
+                  <p className="text-xs text-emerald-400 ml-8">
+                    {txResult.step_up_message || 'Biometric verification successful. Transfer executed.'}
+                  </p>
+                  {(txResult.onchain_tx_hash || txResult.tx_hash) && (
+                    <p className="text-xs text-emerald-500 mt-1 ml-8">
+                      On-chain authorization:{' '}
+                      <a
+                        href={`https://testnet.mstscan.com/tx/${txResult.onchain_tx_hash || txResult.tx_hash}`}
+                        target="_blank" rel="noreferrer"
+                        className="font-mono text-emerald-400 underline hover:text-emerald-200"
+                      >
+                        {(txResult.onchain_tx_hash || txResult.tx_hash).substring(0, 22)}… ↗
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
+
               <Row label="Status"     value={<StatusBadge status={txResult.status} />} />
               <Row label="Transfer ID" value={txResult.transfer_id} mono />
-              <Row label="Customer"   value={txResult.customer_display_id} />
-              <Row label="Wallet"     value={txResult.wallet_address} mono small />
+              <Row label="Customer"   value={txResult.customer_display_id || customerId} />
+              <Row label="Bound Wallet" value={txResult.wallet_address || activeCustomer.wallet_address} mono small />
               <Row label="Risk Score" value={
                 <span className={`font-bold ${txResult.risk_score >= 80 ? 'text-red-400' : txResult.risk_score >= 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
                   {txResult.risk_score}/100
                 </span>
               } />
               <Row label="Action"     value={<StatusBadge status={txResult.action} />} />
-              <Row label="Risk Reason" value={txResult.risk_reason} />
+              <Row label="Risk Reason" value={txResult.risk_reason || txResult.reason} />
               <Row label="Mule Flag"  value={txResult.has_mule_flag ? '⚠️ Destination is mule' : '✅ Clean'} />
               <Row label="Anchor Hash" value={txResult.anchor_hash} mono small />
-              {txResult.onchain_tx_hash && (
-                <div className="bg-indigo-950/40 border border-indigo-700/60 rounded-lg p-2.5 my-2">
-                  <p className="text-xs text-indigo-300 font-semibold mb-0.5">🔗 Live MST Blockchain Transaction:</p>
-                  <a
-                    href={`https://testnet.mstscan.com/tx/${txResult.onchain_tx_hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-indigo-400 hover:text-indigo-200 underline font-mono break-all"
-                  >
-                    {txResult.onchain_tx_hash} ↗
-                  </a>
-                </div>
+
+              {(txResult.onchain_tx_hash || txResult.tx_hash) && (
+                <Row
+                  label="MST Explorer"
+                  value={
+                    <a
+                      href={`https://testnet.mstscan.com/tx/${txResult.onchain_tx_hash || txResult.tx_hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-mono text-indigo-400 underline"
+                    >
+                      {(txResult.onchain_tx_hash || txResult.tx_hash).substring(0, 18)}… ↗
+                    </a>
+                  }
+                />
               )}
 
               {/* Risk factors */}
@@ -176,11 +307,11 @@ export default function BankPortal({ session }) {
                 </div>
               )}
 
-              {/* BridgeKey step-up */}
+              {/* BridgeKey step-up button — only when still pending */}
               {txResult.requires_bridgekey && challengeId && txResult.status === 'PENDING_VERIFICATION' && (
                 <button
                   onClick={() => setShowSigner(true)}
-                  className="w-full bg-amber-600 hover:bg-amber-500 text-white py-2 rounded-lg text-sm font-semibold transition-colors mt-2"
+                  className="w-full bg-amber-600 hover:bg-amber-500 text-white py-2 rounded-lg text-sm font-semibold transition-colors mt-2 cursor-pointer"
                 >
                   🔑 Open BridgeKey Signer
                 </button>
@@ -204,7 +335,7 @@ export default function BankPortal({ session }) {
             className="flex-1 min-w-40 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-red-500"
           />
           <button type="submit"
-            className="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            className="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer">
             Flag Mule
           </button>
         </form>

@@ -1,9 +1,11 @@
 import time
 import secrets
+from web3 import Web3
 from backend.carrier.carrier_service import carrier_service
 from backend.bank.risk_engine import RiskEngine
 from backend.bank.decision_logger import DecisionLogger
 from backend.wallet.bridgekey import bridgekey_service
+from backend.chain.mst_client import mst_client
 
 class BankService:
     """
@@ -17,22 +19,50 @@ class BankService:
         self.risk_engine = RiskEngine()
         self.decision_logger = DecisionLogger(bank_id=bank_id)
 
-        # Mock customer accounts
+        # Customer accounts with phone-to-wallet bindings
         self.customers = {
-            "cust_victim": {
-                "id": "cust_victim",
+            "CUST-1001": {
+                "id": "CUST-1001",
+                "customer_id": "CUST-1001",
                 "name": "Alice Johnson",
                 "phone": "+15551234567",
                 "email": "alice@example.com",
                 "account_number": "ACC-987654",
                 "balance_cents": 2500000, # $25,000.00
                 "enrolled_device": "device_alice_iphone",
-                "wallet_address": "0xe62307B28F3130Db729C05D47b701160FD8b13b5",
+                "wallet_address": "0x19515982e62f9fc03f4e43498ce18028a4cb650e",
+                "password_hash": "mock_hash_123",
+                "last_password_reset": 0
+            },
+            "CUST-1002": {
+                "id": "CUST-1002",
+                "customer_id": "CUST-1002",
+                "name": "Bob Smith",
+                "phone": "+15557654321",
+                "email": "bob@example.com",
+                "account_number": "ACC-123456",
+                "balance_cents": 1000000, # $10,000.00
+                "enrolled_device": "device_bob_pixel",
+                "wallet_address": "0xa61efceef6debe10a029af2bf7e37220b6dae22f",
+                "password_hash": "mock_hash_456",
+                "last_password_reset": 0
+            },
+            "cust_victim": {
+                "id": "cust_victim",
+                "customer_id": "CUST-1001",
+                "name": "Alice Johnson",
+                "phone": "+15551234567",
+                "email": "alice@example.com",
+                "account_number": "ACC-987654",
+                "balance_cents": 2500000, # $25,000.00
+                "enrolled_device": "device_alice_iphone",
+                "wallet_address": "0x19515982e62f9fc03f4e43498ce18028a4cb650e",
                 "password_hash": "mock_hash_123",
                 "last_password_reset": 0
             },
             "cust_legit": {
                 "id": "cust_legit",
+                "customer_id": "CUST-1002",
                 "name": "Bob Smith",
                 "phone": "+15559876543",
                 "email": "bob@example.com",
@@ -52,6 +82,67 @@ class BankService:
 
     def get_customer(self, customer_id: str) -> dict | None:
         return self.customers.get(customer_id)
+
+    def enroll_wallet(self, customer_id: str, wallet_address: str) -> dict:
+        checksummed = Web3.to_checksum_address(wallet_address)
+        if customer_id in self.customers:
+            self.customers[customer_id]["wallet_address"] = checksummed
+        if customer_id == "CUST-1001" and "cust_victim" in self.customers:
+            self.customers["cust_victim"]["wallet_address"] = checksummed
+        elif customer_id == "CUST-1002" and "cust_legit" in self.customers:
+            self.customers["cust_legit"]["wallet_address"] = checksummed
+        elif customer_id == "cust_victim" and "CUST-1001" in self.customers:
+            self.customers["CUST-1001"]["wallet_address"] = checksummed
+        elif customer_id == "cust_legit" and "CUST-1002" in self.customers:
+            self.customers["CUST-1002"]["wallet_address"] = checksummed
+
+        bridgekey_service.enroll_wallet(customer_id, checksummed)
+
+        # Update any active transfers for this customer
+        for t in self.transfers.values():
+            if t.get("customer_id") in [customer_id, "CUST-1001", "CUST-1002", "cust_victim", "cust_legit"]:
+                t["wallet_address"] = checksummed
+
+        return {"customer_id": customer_id, "wallet_address": checksummed, "status": "enrolled"}
+
+    def link_account(self, customer_id: str, phone_number: str) -> dict:
+        if customer_id in self.customers:
+            self.customers[customer_id]["phone"] = phone_number
+        return {"customer_id": customer_id, "phone_number": phone_number, "status": "linked"}
+
+    def detect_sim_swap(self, customer_id_or_phone: str) -> dict:
+        customer = self.customers.get(customer_id_or_phone)
+        if not customer:
+            customer = next((c for c in self.customers.values() if c.get("phone") == customer_id_or_phone), None)
+        
+        phone = customer["phone"] if customer else customer_id_or_phone
+        phone_token = carrier_service.compute_token(phone)
+        risk = self.risk_engine.evaluate_transaction(
+            customer_id=customer["id"] if customer else customer_id_or_phone,
+            phone_token=phone_token,
+            amount_cents=0,
+            destination_account_token=None,
+            is_new_device=False,
+            is_unusual_location=False,
+            had_recent_password_reset=False
+        )
+        swap_event = mst_client.get_latest_swap_event(phone_token)
+        wallet_address = customer.get("wallet_address") if customer else bridgekey_service.get_enrolled_wallet(customer_id_or_phone)
+        
+        return {
+            "bank_id": self.bank_id,
+            "customer_id": customer["id"] if customer else customer_id_or_phone,
+            "phone": phone,
+            "wallet_address": wallet_address,
+            "swap_detected": risk["swap_detected"],
+            "is_pre_notified": risk["is_pre_notified"],
+            "swap_age_hours": risk["swap_age_hours"],
+            "sms_otp_allowed": risk["sms_otp_allowed"],
+            "requires_bridgekey": not risk["sms_otp_allowed"] or risk["requires_bridgekey"],
+            "action": "STEP_UP_BRIDGEKEY" if not risk["sms_otp_allowed"] else risk["action"],
+            "swap_event": swap_event,
+            "risk_evaluation": risk
+        }
 
     def request_password_reset(
         self,

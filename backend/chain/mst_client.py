@@ -205,13 +205,17 @@ class MSTClient:
         if Config.CHAIN_MODE == "mst-testnet" and self.swap_contract and private_key and str(private_key).startswith("0x") and len(str(private_key)) == 66:
             try:
                 account = Account.from_key(private_key)
-                current_nonce = self.w3.eth.get_transaction_count(account.address)
+                current_nonce = self.w3.eth.get_transaction_count(account.address, 'pending')
+                gas_price = max(int(self.w3.eth.gas_price * 1.3), self.w3.to_wei(3, 'gwei'))
                 tx = self.swap_contract.functions.recordEvent(
                     token_bytes,
                     carrier_id,
                     event_type,
                     timestamp,
-                    was_pre_notified,
+                    # The carrier signature covers the caller-supplied flag.
+                    # SwapRegistry verifies that signature first, then applies
+                    # any active on-chain pre-notification to the stored event.
+                    pre_notified,
                     notification_ref or "",
                     nonce_bytes,
                     signature_bytes
@@ -219,8 +223,7 @@ class MSTClient:
                     'from': account.address,
                     'nonce': current_nonce,
                     'gas': 700000,
-                    'maxFeePerGas': self.w3.to_wei(3, 'gwei'),
-                    'maxPriorityFeePerGas': self.w3.to_wei(1.5, 'gwei'),
+                    'gasPrice': gas_price,
                     'chainId': Config.CHAIN_ID
                 })
                 signed = self.w3.eth.account.sign_transaction(tx, private_key=private_key)
@@ -251,15 +254,63 @@ class MSTClient:
     def register_pre_notification(self, token_bytes: bytes, carrier_id: str, duration_seconds: int):
         token_hex = token_bytes.hex()
         valid_until = int(time.time()) + duration_seconds
+        result = {"token": "0x" + token_hex, "valid_until": valid_until, "status": "registered", "is_onchain": False}
+
+        if Config.CHAIN_MODE == "mst-testnet" and self.swap_contract and self.is_connected:
+            try:
+                private_key = Config.CARRIER_A_SIGNING_KEY
+                account = Account.from_key(private_key)
+                nonce = self.w3.eth.get_transaction_count(account.address, 'pending')
+                gas_price = max(int(self.w3.eth.gas_price * 1.3), self.w3.to_wei(3, 'gwei'))
+                tx = self.swap_contract.functions.registerPreNotification(
+                    token_bytes, carrier_id, duration_seconds
+                ).build_transaction({
+                    'from': account.address,
+                    'nonce': nonce,
+                    'gas': 300000,
+                    'gasPrice': gas_price,
+                    'chainId': Config.CHAIN_ID
+                })
+                signed = self.w3.eth.account.sign_transaction(tx, private_key=private_key)
+                tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+                if receipt.status != 1:
+                    raise RuntimeError("Pre-notification transaction reverted")
+                result.update({"is_onchain": True, "tx_hash": "0x" + tx_hash.hex()})
+            except Exception as e:
+                logger.error(f"Live pre-notification broadcast failed: {e}")
+                raise RuntimeError(f"Pre-notification was not registered on MST Testnet: {e}") from e
+
         self._local_pre_notifs[token_hex] = {
             "carrier_id": carrier_id,
             "valid_until": valid_until,
             "consumed": False
         }
-        return {"token": "0x" + token_hex, "valid_until": valid_until, "status": "registered"}
+
+        return result
 
     def get_latest_swap_event(self, token_bytes: bytes) -> dict | None:
         token_hex = token_bytes.hex()
+        if Config.CHAIN_MODE == "mst-testnet" and self.swap_contract and self.is_connected:
+            try:
+                event = self.swap_contract.functions.getLatestEvent(token_bytes).call()
+                carrier_id, event_type, timestamp, pre_notified, notification_ref, block_timestamp = event
+                if timestamp:
+                    local_event = self._local_swap_events.get(token_hex, {})
+                    return {
+                        **local_event,
+                        "token": "0x" + token_hex,
+                        "carrier_id": carrier_id,
+                        "event_type": event_type,
+                        "timestamp": timestamp,
+                        "pre_notified": pre_notified,
+                        "notification_ref": notification_ref,
+                        "block_timestamp": block_timestamp,
+                        "is_onchain": True,
+                        "chain": "MST Blockchain"
+                    }
+            except Exception as e:
+                logger.warning(f"Could not query latest SIM event from MST Testnet: {e}")
         return self._local_swap_events.get(token_hex)
 
     def flag_mule_account(self, account_token: bytes, bank_id: str, evidence_hash: bytes, reason: str):
@@ -335,7 +386,18 @@ class MSTClient:
         return list(self._local_anchors.values())
 
     def get_all_swap_events(self) -> list:
-        return list(self._local_swap_events.values())
+        events = []
+        for token_hex, local_event in self._local_swap_events.items():
+            if Config.CHAIN_MODE == "mst-testnet" and self.swap_contract and self.is_connected:
+                try:
+                    chain_event = self.get_latest_swap_event(bytes.fromhex(token_hex))
+                    if chain_event:
+                        events.append(chain_event)
+                        continue
+                except Exception as e:
+                    logger.warning(f"Could not query SIM event for carrier feed: {e}")
+            events.append(local_event)
+        return events
 
 # Global singleton client
 mst_client = MSTClient()

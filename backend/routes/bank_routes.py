@@ -90,3 +90,37 @@ def list_alerts(bank_id):
     if not bank:
         return jsonify({"error": f"Invalid bank_id: {bank_id}"}), 404
     return jsonify({"bank_id": bank.bank_id, "alerts": bank.sent_alerts})
+
+@bank_bp.route("/<bank_id>/detect-swap/<path:customer_or_phone>", methods=["GET"])
+def detect_swap(bank_id, customer_or_phone):
+    bank = _get_bank(bank_id)
+    if not bank:
+        return jsonify({"error": f"Invalid bank_id: {bank_id}"}), 404
+    res = bank.detect_sim_swap(customer_or_phone)
+    return jsonify(res), 200
+
+@bank_bp.route("/<bank_id>/enroll-wallet", methods=["POST"])
+def enroll_wallet(bank_id):
+    bank = _get_bank(bank_id)
+    if not bank:
+        return jsonify({"error": f"Invalid bank_id: {bank_id}"}), 404
+    data = request.get_json() or {}
+    cust_id = data.get("customer_id")
+    wallet_addr = data.get("wallet_address")
+    if not cust_id or not wallet_addr:
+        return jsonify({"error": "customer_id and wallet_address are required"}), 400
+    res = bank.enroll_wallet(cust_id, wallet_addr)
+    return jsonify(res), 200
+
+@bank_bp.route("/<bank_id>/link-account", methods=["POST"])
+def link_account(bank_id):
+    bank = _get_bank(bank_id)
+    if not bank:
+        return jsonify({"error": f"Invalid bank_id: {bank_id}"}), 404
+    data = request.get_json() or {}
+    cust_id = data.get("customer_id")
+    phone = data.get("phone_number")
+    if not cust_id or not phone:
+        return jsonify({"error": "customer_id and phone_number are required"}), 400
+    res = bank.link_account(cust_id, phone)
+    return jsonify(res), 200
